@@ -277,3 +277,13 @@ Browser not sending FEN
 Check Tampermonkey is enabled
 Press F12 → Console on Chess.com, look for [FEN Extractor v4] Loaded
 Make sure fen_relay_server.py is running
+CORS errors
+The relay server includes CORS headers. If issues persist, the Tampermonkey script uses GM_xmlhttpRequest which bypasses CORS entirely.
+
+⚠️ Disclaimer
+This tool is intended for learning and practice purposes only. Using it in rated games or tournaments on Chess.com violates their Fair Play Policy. Use responsibly.
+
+📄 License
+MIT License — see LICENSE file.
+
+🤝 Contributing
