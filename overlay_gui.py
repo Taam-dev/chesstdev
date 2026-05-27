@@ -1,0 +1,418 @@
+"""
+GUI overlay hiển thị gợi ý nước đi từ Stockfish.
+"""
+
+from __future__ import annotations
+
+import threading
+import tkinter as tk
+from tkinter import ttk
+
+import chess
+
+from config import Config
+from engine_manager import EngineManager, AnalysisResult
+from fen_parser import FENProvider
+
+
+class ChessOverlay:
+    """GUI always-on-top hiển thị phân tích Stockfish."""
+
+    def __init__(self):
+        self.engine = EngineManager()
+        self.fen_provider = FENProvider()
+        self.auto_refresh = False
+        self._running = True
+        self._last_analyzed_fen = None
+
+        self._build_gui()
+
+    def _build_gui(self):
+        self.root = tk.Tk()
+        self.root.title("♟ Chess Assistant")
+        self.root.geometry(f"{Config.OVERLAY_WIDTH}x{Config.OVERLAY_HEIGHT}")
+        self.root.attributes("-topmost", True)
+        self.root.resizable(True, True)
+        self.root.configure(bg="#1a1a2e")
+
+        try:
+            self.root.attributes("-alpha", Config.OVERLAY_ALPHA)
+        except tk.TclError:
+            pass
+
+        # --- Styles ---
+        style = ttk.Style()
+        style.theme_use("clam")
+
+        bg = "#1a1a2e"
+        fg = "#e0e0e0"
+
+        style.configure("Dark.TFrame", background=bg)
+        style.configure(
+            "Dark.TLabel", background=bg, foreground=fg, font=("Consolas", 10)
+        )
+        style.configure(
+            "Title.TLabel",
+            background=bg,
+            foreground="#f5c2e7",
+            font=("Consolas", 16, "bold"),
+        )
+        style.configure(
+            "Move.TLabel",
+            background=bg,
+            foreground="#a6e3a1",
+            font=("Consolas", 28, "bold"),
+        )
+        style.configure(
+            "Score.TLabel",
+            background=bg,
+            foreground="#fab387",
+            font=("Consolas", 18, "bold"),
+        )
+        style.configure(
+            "Eval.TLabel", background=bg, foreground="#cba6f7", font=("Consolas", 11)
+        )
+        style.configure(
+            "PV.TLabel", background=bg, foreground="#89b4fa", font=("Consolas", 9)
+        )
+        style.configure(
+            "Status.TLabel",
+            background="#16213e",
+            foreground="#7f8c8d",
+            font=("Consolas", 9),
+        )
+        style.configure("Dark.TButton", font=("Consolas", 10, "bold"))
+        style.configure(
+            "Dark.TCheckbutton", background=bg, foreground=fg, font=("Consolas", 9)
+        )
+
+        main = ttk.Frame(self.root, style="Dark.TFrame", padding=12)
+        main.pack(fill=tk.BOTH, expand=True)
+
+        # --- Title ---
+        ttk.Label(main, text="♟ Chess Assistant", style="Title.TLabel").pack(
+            pady=(0, 8)
+        )
+
+        # --- FEN Input ---
+        fen_frame = ttk.Frame(main, style="Dark.TFrame")
+        fen_frame.pack(fill=tk.X, pady=4)
+
+        ttk.Label(fen_frame, text="FEN:", style="Dark.TLabel").pack(side=tk.LEFT)
+
+        self.fen_var = tk.StringVar(value="")  # TRỐNG — không mặc định starting pos
+        self.fen_entry = ttk.Entry(
+            fen_frame, textvariable=self.fen_var, width=50, font=("Consolas", 9)
+        )
+        self.fen_entry.pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
+
+        # --- Buttons ---
+        btn_frame = ttk.Frame(main, style="Dark.TFrame")
+        btn_frame.pack(fill=tk.X, pady=6)
+
+        self.analyze_btn = ttk.Button(
+            btn_frame, text="▶ Analyze", command=self._on_analyze, style="Dark.TButton"
+        )
+        self.analyze_btn.pack(side=tk.LEFT, padx=3)
+
+        self.top3_btn = ttk.Button(
+            btn_frame, text="📊 Top 3", command=self._on_top3, style="Dark.TButton"
+        )
+        self.top3_btn.pack(side=tk.LEFT, padx=3)
+
+        self.fetch_btn = ttk.Button(
+            btn_frame,
+            text="🔄 Lấy FEN",
+            command=self._on_fetch_fen,
+            style="Dark.TButton",
+        )
+        self.fetch_btn.pack(side=tk.LEFT, padx=3)
+
+        # --- Options ---
+        opt_frame = ttk.Frame(main, style="Dark.TFrame")
+        opt_frame.pack(fill=tk.X, pady=4)
+
+        self.auto_var = tk.BooleanVar(value=False)
+        auto_cb = ttk.Checkbutton(
+            opt_frame,
+            text="🔁 Auto",
+            variable=self.auto_var,
+            command=self._toggle_auto,
+            style="Dark.TCheckbutton",
+        )
+        auto_cb.pack(side=tk.LEFT, padx=4)
+
+        ttk.Label(opt_frame, text="Depth:", style="Dark.TLabel").pack(
+            side=tk.LEFT, padx=(12, 2)
+        )
+        self.depth_var = tk.IntVar(value=Config.ENGINE_DEPTH)
+        depth_spin = ttk.Spinbox(
+            opt_frame,
+            from_=1,
+            to=30,
+            width=4,
+            textvariable=self.depth_var,
+            font=("Consolas", 10),
+        )
+        depth_spin.pack(side=tk.LEFT, padx=2)
+
+        # --- Turn indicator ---
+        self.turn_var = tk.StringVar(value="")
+        ttk.Label(opt_frame, textvariable=self.turn_var, style="Dark.TLabel").pack(
+            side=tk.RIGHT, padx=4
+        )
+
+        # --- Separator ---
+        ttk.Separator(main, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
+
+        # --- Results ---
+        result_frame = ttk.Frame(main, style="Dark.TFrame")
+        result_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Best Move
+        move_row = ttk.Frame(result_frame, style="Dark.TFrame")
+        move_row.pack(fill=tk.X, pady=4)
+        ttk.Label(move_row, text="Best Move:", style="Dark.TLabel").pack(side=tk.LEFT)
+        self.move_label = ttk.Label(move_row, text="—", style="Move.TLabel")
+        self.move_label.pack(side=tk.LEFT, padx=12)
+
+        # Eval score
+        eval_row = ttk.Frame(result_frame, style="Dark.TFrame")
+        eval_row.pack(fill=tk.X, pady=2)
+        ttk.Label(eval_row, text="Eval:", style="Dark.TLabel").pack(side=tk.LEFT)
+        self.score_label = ttk.Label(eval_row, text="—", style="Score.TLabel")
+        self.score_label.pack(side=tk.LEFT, padx=12)
+
+        # Eval text
+        self.eval_text_label = ttk.Label(result_frame, text="", style="Eval.TLabel")
+        self.eval_text_label.pack(fill=tk.X, pady=2)
+
+        # PV / Top moves
+        self.pv_label = ttk.Label(
+            result_frame,
+            text="",
+            style="PV.TLabel",
+            wraplength=Config.OVERLAY_WIDTH - 40,
+            justify=tk.LEFT,
+        )
+        self.pv_label.pack(fill=tk.X, pady=6)
+
+        # --- Status bar ---
+        status_frame = ttk.Frame(main, style="Dark.TFrame")
+        status_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        self.status_var = tk.StringVar(value="Sẵn sàng — Nhập FEN hoặc bấm 🔄 Lấy FEN")
+        ttk.Label(
+            status_frame,
+            textvariable=self.status_var,
+            style="Status.TLabel",
+            anchor=tk.W,
+        ).pack(fill=tk.X)
+
+        # --- Bindings ---
+        self.root.bind("<Return>", lambda e: self._on_analyze())
+        self.root.bind("<F5>", lambda e: self._on_fetch_fen())
+        self.root.bind("<Escape>", lambda e: self._quit())
+        self.root.protocol("WM_DELETE_WINDOW", self._quit)
+
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
+
+    def _on_fetch_fen(self):
+        """Lấy FEN từ relay server."""
+        self._set_status("Đang lấy FEN từ relay server...")
+
+        fen = self.fen_provider.get_fen()
+        if fen:
+            self.fen_var.set(fen)
+            self._update_turn_indicator(fen)
+            self._set_status(f"✓ Đã lấy FEN từ relay server")
+        else:
+            self._set_status(
+                "✗ Không lấy được FEN — Kiểm tra relay server và userscript"
+            )
+
+    def _on_analyze(self):
+        """Phân tích vị trí hiện tại."""
+        # Thử lấy FEN mới từ server trước
+        live_fen = self.fen_provider.get_fen()
+        if live_fen:
+            self.fen_var.set(live_fen)
+
+        fen = self.fen_var.get().strip()
+        if not fen:
+            self._set_status("⚠ Chưa có FEN — Nhập FEN hoặc bấm 🔄 Lấy FEN")
+            return
+
+        try:
+            chess.Board(fen)
+        except ValueError as e:
+            self._set_status(f"✗ FEN không hợp lệ: {e}")
+            return
+
+        self._update_turn_indicator(fen)
+        self._set_status("⏳ Đang phân tích...")
+        self.analyze_btn.configure(state=tk.DISABLED)
+
+        def worker():
+            try:
+                result = self.engine.analyze(fen, depth=self.depth_var.get())
+                self.root.after(0, self._display_result, result)
+                self._last_analyzed_fen = fen
+            except Exception as ex:
+                self.root.after(0, self._set_status, f"✗ Lỗi: {ex}")
+            finally:
+                self.root.after(0, lambda: self.analyze_btn.configure(state=tk.NORMAL))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_top3(self):
+        """Hiển thị top 3 nước đi."""
+        live_fen = self.fen_provider.get_fen()
+        if live_fen:
+            self.fen_var.set(live_fen)
+
+        fen = self.fen_var.get().strip()
+        if not fen:
+            self._set_status("⚠ Chưa có FEN")
+            return
+
+        try:
+            chess.Board(fen)
+        except ValueError:
+            self._set_status("✗ FEN không hợp lệ")
+            return
+
+        self._update_turn_indicator(fen)
+        self._set_status("⏳ Tìm top 3 nước đi...")
+        self.top3_btn.configure(state=tk.DISABLED)
+
+        def worker():
+            try:
+                results = self.engine.get_top_moves(
+                    fen, count=3, depth=self.depth_var.get()
+                )
+                self.root.after(0, self._display_top_moves, results)
+            except Exception as ex:
+                self.root.after(0, self._set_status, f"✗ Lỗi: {ex}")
+            finally:
+                self.root.after(0, lambda: self.top3_btn.configure(state=tk.NORMAL))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _toggle_auto(self):
+        """Bật/tắt auto-refresh."""
+        self.auto_refresh = self.auto_var.get()
+        if self.auto_refresh:
+            self._set_status("🔁 Auto-refresh BẬT")
+            self._auto_loop()
+        else:
+            self._set_status("Auto-refresh TẮT")
+
+    def _auto_loop(self):
+        """Tự động lấy FEN + phân tích."""
+        if not self.auto_refresh or not self._running:
+            return
+
+        fen = self.fen_provider.get_fen()
+        if fen:
+            # Chỉ phân tích lại khi FEN thay đổi
+            if fen != self._last_analyzed_fen:
+                self.fen_var.set(fen)
+                self._update_turn_indicator(fen)
+                self._on_analyze()
+        else:
+            self._set_status("🔁 Auto — Chưa nhận được FEN từ server...")
+
+        self.root.after(Config.REFRESH_INTERVAL_MS, self._auto_loop)
+
+    # ------------------------------------------------------------------
+    # Display
+    # ------------------------------------------------------------------
+
+    def _display_result(self, result: AnalysisResult):
+        self.move_label.configure(text=result.best_move_san)
+        self.score_label.configure(text=result.score_display)
+        self.eval_text_label.configure(text=result.evaluation_text)
+
+        # Màu eval theo score
+        if result.score_cp is not None:
+            if result.score_cp > 50:
+                self.score_label.configure(foreground="#a6e3a1")  # xanh
+            elif result.score_cp < -50:
+                self.score_label.configure(foreground="#f38ba8")  # đỏ
+            else:
+                self.score_label.configure(foreground="#fab387")  # cam
+        elif result.score_mate is not None:
+            if result.score_mate > 0:
+                self.score_label.configure(foreground="#a6e3a1")
+            else:
+                self.score_label.configure(foreground="#f38ba8")
+
+        pv_text = ""
+        if result.pv:
+            pv_text = "PV: " + " → ".join(result.pv)
+        self.pv_label.configure(text=pv_text)
+
+        self._set_status(
+            f"✓ Depth {result.depth} | {result.thinking_time}s | "
+            f"UCI: {result.best_move_uci}"
+        )
+
+    def _display_top_moves(self, results: list[AnalysisResult]):
+        if not results:
+            self._set_status("Không tìm thấy nước đi")
+            return
+
+        best = results[0]
+        self.move_label.configure(text=best.best_move_san)
+        self.score_label.configure(text=best.score_display)
+        self.eval_text_label.configure(text=best.evaluation_text)
+
+        lines = []
+        medals = ["🥇", "🥈", "🥉"]
+        for i, r in enumerate(results):
+            medal = medals[i] if i < len(medals) else f"{i + 1}."
+            pv = " → ".join(r.pv[:5])
+            lines.append(f"{medal} {r.best_move_san:6s} ({r.score_display:>7s})  {pv}")
+
+        self.pv_label.configure(text="\n".join(lines))
+        self._set_status(f"✓ Top {len(results)} nước đi — Depth {best.depth}")
+
+    def _update_turn_indicator(self, fen: str):
+        """Hiển thị lượt đi."""
+        try:
+            board = chess.Board(fen)
+            turn = "⬜ Trắng đi" if board.turn else "⬛ Đen đi"
+            move_num = board.fullmove_number
+            self.turn_var.set(f"{turn} (nước {move_num})")
+        except Exception:
+            self.turn_var.set("")
+
+    def _set_status(self, msg: str):
+        self.status_var.set(msg)
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def _quit(self):
+        self._running = False
+        self.auto_refresh = False
+        self.engine.stop()
+        self.root.destroy()
+
+    def run(self):
+        """Khởi chạy GUI."""
+        problems = Config.validate()
+        if problems:
+            for p in problems:
+                print(f"⚠ {p}")
+
+        try:
+            self.engine.start()
+            self._set_status("✓ Engine sẵn sàng — Nhập FEN hoặc bấm 🔄 Lấy FEN")
+        except FileNotFoundError as e:
+            self._set_status(f"✗ {e}")
+
+        self.root.mainloop()
