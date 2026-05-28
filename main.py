@@ -117,21 +117,27 @@ Examples:
         Config.STOCKFISH_PATH = args.stockfish
 
     # Kiểm tra cấu hình
+    # CLI mode
+    if args.fen and not args.gui:
+        problems = Config.validate()
+        if problems:
+            for p in problems:
+                print(f"⚠ {p}")
+            print()
+            sys.exit(1)
+        print(f"✓ Stockfish: {Config.STOCKFISH_PATH}")
+        cli_analyze(args.fen, args.depth, args.top)
+        return
+
+    # GUI mode
     problems = Config.validate()
     if problems:
         for p in problems:
             print(f"⚠ {p}")
         print()
-        sys.exit(1)
+    else:
+        print(f"✓ Stockfish: {Config.STOCKFISH_PATH}")
 
-    print(f"✓ Stockfish: {Config.STOCKFISH_PATH}")
-
-    # CLI mode
-    if args.fen and not args.gui:
-        cli_analyze(args.fen, args.depth, args.top)
-        return
-
-    # GUI mode
     from overlay_gui import ChessOverlay
 
     app = ChessOverlay()

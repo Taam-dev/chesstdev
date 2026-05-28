@@ -91,16 +91,16 @@ class ChessOverlay:
             "Dark.TCheckbutton", background=bg, foreground=fg, font=("Consolas", 9)
         )
 
-        main = ttk.Frame(self.root, style="Dark.TFrame", padding=12)
-        main.pack(fill=tk.BOTH, expand=True)
+        self.main_frame = ttk.Frame(self.root, style="Dark.TFrame", padding=12)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
 
         # --- Title ---
-        ttk.Label(main, text="♟ Chess Assistant", style="Title.TLabel").pack(
+        ttk.Label(self.main_frame, text="♟ Chess Assistant", style="Title.TLabel").pack(
             pady=(0, 8)
         )
 
         # --- FEN Input ---
-        fen_frame = ttk.Frame(main, style="Dark.TFrame")
+        fen_frame = ttk.Frame(self.main_frame, style="Dark.TFrame")
         fen_frame.pack(fill=tk.X, pady=4)
 
         ttk.Label(fen_frame, text="FEN:", style="Dark.TLabel").pack(side=tk.LEFT)
@@ -112,7 +112,7 @@ class ChessOverlay:
         self.fen_entry.pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
 
         # --- Buttons ---
-        btn_frame = ttk.Frame(main, style="Dark.TFrame")
+        btn_frame = ttk.Frame(self.main_frame, style="Dark.TFrame")
         btn_frame.pack(fill=tk.X, pady=6)
 
         self.analyze_btn = ttk.Button(
@@ -134,7 +134,7 @@ class ChessOverlay:
         self.fetch_btn.pack(side=tk.LEFT, padx=3)
 
         # --- Options ---
-        opt_frame = ttk.Frame(main, style="Dark.TFrame")
+        opt_frame = ttk.Frame(self.main_frame, style="Dark.TFrame")
         opt_frame.pack(fill=tk.X, pady=4)
 
         self.auto_var = tk.BooleanVar(value=False)
@@ -164,12 +164,12 @@ class ChessOverlay:
         ttk.Label(opt_frame, text="Bg:", style="Dark.TLabel").pack(
             side=tk.LEFT, padx=(12, 2)
         )
-        self.theme_var = tk.StringVar(value="Midnight Blue")
+        self.theme_var = tk.StringVar(value="Default")
         self.theme_menu = ttk.Combobox(
             opt_frame,
             textvariable=self.theme_var,
-            values=["Midnight Blue", "Deep Space", "Dark Emerald", "Wine Red", "Custom...", "Custom Image..."],
-            width=13,
+            values=["Default", "Choose Image..."],
+            width=15,
             state="readonly",
             font=("Consolas", 9),
         )
@@ -197,10 +197,10 @@ class ChessOverlay:
         )
 
         # --- Separator ---
-        ttk.Separator(main, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
+        ttk.Separator(self.main_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
 
         # --- Results ---
-        result_frame = ttk.Frame(main, style="Dark.TFrame")
+        result_frame = ttk.Frame(self.main_frame, style="Dark.TFrame")
         result_frame.pack(fill=tk.BOTH, expand=True)
 
         # Best Move
@@ -242,7 +242,7 @@ class ChessOverlay:
         self.pv_label.pack(fill=tk.X, pady=6)
 
         # --- Status bar ---
-        status_frame = ttk.Frame(main, style="Dark.TFrame")
+        status_frame = ttk.Frame(self.main_frame, style="Dark.TFrame")
         status_frame.pack(fill=tk.X, side=tk.BOTTOM)
         self.status_var = tk.StringVar(value="Ready — Enter FEN or click 🔄 Fetch FEN")
         
@@ -487,23 +487,7 @@ class ChessOverlay:
 
     def _on_theme_change(self, event=None):
         theme = self.theme_var.get()
-        themes = {
-            "Midnight Blue": "#1a1a2e",
-            "Deep Space": "#121212",
-            "Dark Emerald": "#132a13",
-            "Wine Red": "#2b1b17"
-        }
-        
-        if theme == "Custom...":
-            self._remove_bg_image()
-            from tkinter import colorchooser
-            color_code = colorchooser.askcolor(title="Choose Background Color", initialcolor=self.current_bg)
-            if color_code and color_code[1]:
-                self._update_bg_color(color_code[1])
-            else:
-                self._restore_previous_theme(themes)
-                
-        elif theme == "Custom Image...":
+        if theme == "Choose Image...":
             from tkinter import filedialog
             file_path = filedialog.askopenfilename(
                 title="Select Background Image",
@@ -517,11 +501,10 @@ class ChessOverlay:
                     w, h = Config.OVERLAY_WIDTH, Config.OVERLAY_HEIGHT
                 self._update_bg_image(w, h)
             else:
-                self._restore_previous_theme(themes)
+                self._restore_previous_theme()
         else:
             self._remove_bg_image()
-            color = themes.get(theme, "#1a1a2e")
-            self._update_bg_color(color)
+            self._update_bg_color("#1a1a2e")
 
     def _remove_bg_image(self):
         """Destroy or hide the background image label."""
@@ -529,14 +512,12 @@ class ChessOverlay:
         if hasattr(self, "bg_label"):
             self.bg_label.place_forget()
 
-    def _restore_previous_theme(self, themes):
+    def _restore_previous_theme(self):
         """Restore the combobox selection to match the active background."""
         if self.bg_image_path:
-            self.theme_var.set("Custom Image...")
+            self.theme_var.set("Choose Image...")
         else:
-            inv_themes = {v: k for k, v in themes.items()}
-            prev_theme = inv_themes.get(self.current_bg, "Custom...")
-            self.theme_var.set(prev_theme)
+            self.theme_var.set("Default")
 
     def _update_bg_color(self, new_bg: str):
         self.current_bg = new_bg
@@ -592,7 +573,7 @@ class ChessOverlay:
             self.bg_photo = ImageTk.PhotoImage(img)
             
             if not hasattr(self, "bg_label"):
-                self.bg_label = tk.Label(self.root, image=self.bg_photo)
+                self.bg_label = tk.Label(self.main_frame, image=self.bg_photo)
             else:
                 self.bg_label.configure(image=self.bg_photo)
                 
