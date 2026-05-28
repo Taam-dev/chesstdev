@@ -25,8 +25,12 @@ class ChessOverlay:
         self._running = True
         self._last_analyzed_fen = None
         self.current_bg = "#1a1a2e"
+        self.bg_image_path = None
+        self._last_width = 0
+        self._last_height = 0
 
         self._build_gui()
+        self.root.bind("<Configure>", self._on_resize)
 
     def _build_gui(self):
         self.root = tk.Tk()
@@ -164,13 +168,27 @@ class ChessOverlay:
         self.theme_menu = ttk.Combobox(
             opt_frame,
             textvariable=self.theme_var,
-            values=["Midnight Blue", "Deep Space", "Dark Emerald", "Wine Red", "Custom..."],
+            values=["Midnight Blue", "Deep Space", "Dark Emerald", "Wine Red", "Custom...", "Custom Image..."],
             width=13,
             state="readonly",
             font=("Consolas", 9),
         )
         self.theme_menu.pack(side=tk.LEFT, padx=2)
         self.theme_menu.bind("<<ComboboxSelected>>", self._on_theme_change)
+
+        ttk.Label(opt_frame, text="Play As:", style="Dark.TLabel").pack(
+            side=tk.LEFT, padx=(12, 2)
+        )
+        self.play_as_var = tk.StringVar(value="Both")
+        self.play_as_menu = ttk.Combobox(
+            opt_frame,
+            textvariable=self.play_as_var,
+            values=["Both", "White", "Black"],
+            width=6,
+            state="readonly",
+            font=("Consolas", 9),
+        )
+        self.play_as_menu.pack(side=tk.LEFT, padx=2)
 
         # --- Turn indicator ---
         self.turn_var = tk.StringVar(value="")
@@ -338,6 +356,21 @@ class ChessOverlay:
         else:
             self._set_status("Auto-refresh OFF")
 
+    def _should_analyze(self, fen: str) -> bool:
+        """Check if we should analyze based on 'Play As' setting and FEN turn."""
+        try:
+            board = chess.Board(fen)
+            play_as = self.play_as_var.get()
+            if play_as == "Both":
+                return True
+            elif play_as == "White" and board.turn == chess.WHITE:
+                return True
+            elif play_as == "Black" and board.turn == chess.BLACK:
+                return True
+            return False
+        except Exception:
+            return True
+
     def _auto_loop(self):
         """Automatically fetch FEN + analyze."""
         if not self.auto_refresh or not self._running:
@@ -348,7 +381,12 @@ class ChessOverlay:
             if fen != self._last_analyzed_fen:
                 self.fen_var.set(fen)
                 self._update_turn_indicator(fen)
-                self._on_analyze()
+                if self._should_analyze(fen):
+                    self._on_analyze()
+                else:
+                    opponent = "Black" if self.play_as_var.get() == "White" else "White"
+                    self._set_status(f"⏳ Waiting for {opponent}'s move...")
+                    self._last_analyzed_fen = fen
         else:
             self._set_status("🔁 Auto — No FEN received from server...")
 
@@ -457,17 +495,48 @@ class ChessOverlay:
         }
         
         if theme == "Custom...":
+            self._remove_bg_image()
             from tkinter import colorchooser
             color_code = colorchooser.askcolor(title="Choose Background Color", initialcolor=self.current_bg)
             if color_code and color_code[1]:
                 self._update_bg_color(color_code[1])
             else:
-                inv_themes = {v: k for k, v in themes.items()}
-                prev_theme = inv_themes.get(self.current_bg, "Custom...")
-                self.theme_var.set(prev_theme)
+                self._restore_previous_theme(themes)
+                
+        elif theme == "Custom Image...":
+            from tkinter import filedialog
+            file_path = filedialog.askopenfilename(
+                title="Select Background Image",
+                filetypes=[("Image Files", "*.png;*.jpg;*.jpeg;*.gif;*.bmp")]
+            )
+            if file_path:
+                self.bg_image_path = file_path
+                w = self.root.winfo_width()
+                h = self.root.winfo_height()
+                if w < 10 or h < 10:
+                    w, h = Config.OVERLAY_WIDTH, Config.OVERLAY_HEIGHT
+                self._update_bg_image(w, h)
+            else:
+                self._restore_previous_theme(themes)
         else:
+            self._remove_bg_image()
             color = themes.get(theme, "#1a1a2e")
             self._update_bg_color(color)
+
+    def _remove_bg_image(self):
+        """Destroy or hide the background image label."""
+        self.bg_image_path = None
+        if hasattr(self, "bg_label"):
+            self.bg_label.place_forget()
+
+    def _restore_previous_theme(self, themes):
+        """Restore the combobox selection to match the active background."""
+        if self.bg_image_path:
+            self.theme_var.set("Custom Image...")
+        else:
+            inv_themes = {v: k for k, v in themes.items()}
+            prev_theme = inv_themes.get(self.current_bg, "Custom...")
+            self.theme_var.set(prev_theme)
 
     def _update_bg_color(self, new_bg: str):
         self.current_bg = new_bg
@@ -501,6 +570,36 @@ class ChessOverlay:
             return f"#{r:02x}{g:02x}{b:02x}"
         except Exception:
             return "#121212"
+
+    def _on_resize(self, event=None):
+        """Handle window resize to upscale/downscale background image."""
+        if event and event.widget == self.root:
+            w, h = event.width, event.height
+            if w != self._last_width or h != self._last_height:
+                self._last_width = w
+                self._last_height = h
+                if self.bg_image_path:
+                    self._update_bg_image(w, h)
+
+    def _update_bg_image(self, w: int, h: int):
+        """Load, resize, and display background image."""
+        if not self.bg_image_path:
+            return
+        try:
+            from PIL import Image, ImageTk
+            img = Image.open(self.bg_image_path)
+            img = img.resize((w, h), Image.Resampling.LANCZOS)
+            self.bg_photo = ImageTk.PhotoImage(img)
+            
+            if not hasattr(self, "bg_label"):
+                self.bg_label = tk.Label(self.root, image=self.bg_photo)
+            else:
+                self.bg_label.configure(image=self.bg_photo)
+                
+            self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+            self.bg_label.lower()
+        except Exception as e:
+            self._set_status(f"✗ Image error: {e}")
 
     # ------------------------------------------------------------------
     # Lifecycle

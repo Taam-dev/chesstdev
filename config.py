@@ -95,7 +95,7 @@ class Config:
     RELAY_PORT: int = 5555
 
     # --- Overlay GUI ---
-    OVERLAY_WIDTH: int = 420
+    OVERLAY_WIDTH: int = 450
     OVERLAY_HEIGHT: int = 500
     OVERLAY_ALPHA: float = 0.95
     REFRESH_INTERVAL_MS: int = 1500  # Auto-refresh interval
