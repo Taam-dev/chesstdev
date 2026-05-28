@@ -16,9 +16,19 @@ from fen_parser import FENProvider
 
 
 class ChessOverlay:
-    """Always-on-top GUI showing Stockfish analysis."""
+    """Always-on-top GUI showing Stockfish analysis with full custom background support."""
 
     def __init__(self):
+        # --- Taskbar Icon Grouping on Windows ---
+        import sys
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                myappid = 'chessassistant.overlay.v1'
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+            except Exception:
+                pass
+
         self.engine = EngineManager()
         self.fen_provider = FENProvider()
         self.auto_refresh = False
@@ -42,8 +52,14 @@ class ChessOverlay:
 
         # --- Icon ---
         import os
-        icon_ico = "icon.ico"
-        icon_png = "icon.png"
+        import sys
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.dirname(sys.executable)
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            
+        icon_ico = os.path.join(base_dir, "icon.ico")
+        icon_png = os.path.join(base_dir, "icon.png")
         icon_loaded = False
         
         if os.path.exists(icon_ico):
@@ -112,169 +128,88 @@ class ChessOverlay:
             "Dark.TCheckbutton", background=bg, foreground=fg, font=("Consolas", 9)
         )
 
-        self.main_frame = ttk.Frame(self.root, style="Dark.TFrame", padding=12)
-        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        # --- Canvas Background ---
+        self.canvas = tk.Canvas(self.root, highlightthickness=0, bg="#1a1a2e")
+        self.canvas.pack(fill=tk.BOTH, expand=True)
 
-        # --- Title ---
-        ttk.Label(self.main_frame, text="♟ Chess Assistant", style="Title.TLabel").pack(
-            pady=(0, 8)
-        )
+        self.bg_photo = None
+        self.bg_image_id = self.canvas.create_image(0, 0, anchor=tk.NW)
 
-        # --- FEN Input ---
-        fen_frame = ttk.Frame(self.main_frame, style="Dark.TFrame")
-        fen_frame.pack(fill=tk.X, pady=4)
-
-        ttk.Label(fen_frame, text="FEN:", style="Dark.TLabel").pack(side=tk.LEFT)
-
+        # --- Variables ---
         self.fen_var = tk.StringVar(value="")
-        self.fen_entry = ttk.Entry(
-            fen_frame, textvariable=self.fen_var, width=50, font=("Consolas", 9)
-        )
-        self.fen_entry.pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
-
-        # --- Buttons ---
-        btn_frame = ttk.Frame(self.main_frame, style="Dark.TFrame")
-        btn_frame.pack(fill=tk.X, pady=6)
-
-        self.analyze_btn = ttk.Button(
-            btn_frame, text="▶ Analyze", command=self._on_analyze, style="Dark.TButton"
-        )
-        self.analyze_btn.pack(side=tk.LEFT, padx=3)
-
-        self.top3_btn = ttk.Button(
-            btn_frame, text="📊 Top 3", command=self._on_top3, style="Dark.TButton"
-        )
-        self.top3_btn.pack(side=tk.LEFT, padx=3)
-
-        self.fetch_btn = ttk.Button(
-            btn_frame,
-            text="🔄 Fetch FEN",
-            command=self._on_fetch_fen,
-            style="Dark.TButton",
-        )
-        self.fetch_btn.pack(side=tk.LEFT, padx=3)
-
-        # --- Options ---
-        opt_frame = ttk.Frame(self.main_frame, style="Dark.TFrame")
-        opt_frame.pack(fill=tk.X, pady=4)
-
         self.auto_var = tk.BooleanVar(value=False)
-        auto_cb = ttk.Checkbutton(
-            opt_frame,
-            text="🔁 Auto",
-            variable=self.auto_var,
-            command=self._toggle_auto,
-            style="Dark.TCheckbutton",
-        )
-        auto_cb.pack(side=tk.LEFT, padx=4)
-
-        ttk.Label(opt_frame, text="Depth:", style="Dark.TLabel").pack(
-            side=tk.LEFT, padx=(12, 2)
-        )
         self.depth_var = tk.IntVar(value=Config.ENGINE_DEPTH)
-        depth_spin = ttk.Spinbox(
-            opt_frame,
-            from_=1,
-            to=30,
-            width=4,
-            textvariable=self.depth_var,
-            font=("Consolas", 10),
-        )
-        depth_spin.pack(side=tk.LEFT, padx=2)
-
-        ttk.Label(opt_frame, text="Bg:", style="Dark.TLabel").pack(
-            side=tk.LEFT, padx=(12, 2)
-        )
         self.theme_var = tk.StringVar(value="Default")
-        self.theme_menu = ttk.Combobox(
-            opt_frame,
-            textvariable=self.theme_var,
-            values=["Default", "Choose Image..."],
-            width=15,
-            state="readonly",
-            font=("Consolas", 9),
-        )
-        self.theme_menu.pack(side=tk.LEFT, padx=2)
-        self.theme_menu.bind("<<ComboboxSelected>>", self._on_theme_change)
-
-        ttk.Label(opt_frame, text="Play As:", style="Dark.TLabel").pack(
-            side=tk.LEFT, padx=(12, 2)
-        )
         self.play_as_var = tk.StringVar(value="Both")
-        self.play_as_menu = ttk.Combobox(
-            opt_frame,
-            textvariable=self.play_as_var,
-            values=["Both", "White", "Black"],
-            width=6,
-            state="readonly",
-            font=("Consolas", 9),
-        )
-        self.play_as_menu.pack(side=tk.LEFT, padx=2)
-
-        # --- Turn indicator ---
         self.turn_var = tk.StringVar(value="")
-        ttk.Label(opt_frame, textvariable=self.turn_var, style="Dark.TLabel").pack(
-            side=tk.RIGHT, padx=4
-        )
-
-        # --- Separator ---
-        ttk.Separator(self.main_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
-
-        # --- Results ---
-        result_frame = ttk.Frame(self.main_frame, style="Dark.TFrame")
-        result_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Best Move
-        move_row = ttk.Frame(result_frame, style="Dark.TFrame")
-        move_row.pack(fill=tk.X, pady=4)
-        ttk.Label(move_row, text="Best Move:", style="Dark.TLabel").pack(side=tk.LEFT)
-        self.move_label = ttk.Label(move_row, text="—", style="Move.TLabel")
-        self.move_label.pack(side=tk.LEFT, padx=12)
-
-        # Move Description
-        self.move_desc_label = ttk.Label(
-            result_frame,
-            text="",
-            style="Dark.TLabel",
-            foreground="#94e2d5",
-            font=("Consolas", 11, "italic"),
-        )
-        self.move_desc_label.pack(fill=tk.X, padx=12, pady=(0, 6))
-
-        # Eval score
-        eval_row = ttk.Frame(result_frame, style="Dark.TFrame")
-        eval_row.pack(fill=tk.X, pady=2)
-        ttk.Label(eval_row, text="Eval:", style="Dark.TLabel").pack(side=tk.LEFT)
-        self.score_label = ttk.Label(eval_row, text="—", style="Score.TLabel")
-        self.score_label.pack(side=tk.LEFT, padx=12)
-
-        # Eval text
-        self.eval_text_label = ttk.Label(result_frame, text="", style="Eval.TLabel")
-        self.eval_text_label.pack(fill=tk.X, pady=2)
-
-        # PV / Top moves
-        self.pv_label = ttk.Label(
-            result_frame,
-            text="",
-            style="PV.TLabel",
-            wraplength=Config.OVERLAY_WIDTH - 40,
-            justify=tk.LEFT,
-        )
-        self.pv_label.pack(fill=tk.X, pady=6)
-
-        # --- Status bar ---
-        status_frame = ttk.Frame(self.main_frame, style="Dark.TFrame")
-        status_frame.pack(fill=tk.X, side=tk.BOTTOM)
         self.status_var = tk.StringVar(value="Ready — Enter FEN or click 🔄 Fetch FEN")
+        self.opacity_var = tk.DoubleVar(value=95.0)
+
+        # --- Widgets (placed via Canvas create_window) ---
         
-        # We need self.status_label to be accessible for color updating
-        self.status_label = ttk.Label(
-            status_frame,
-            textvariable=self.status_var,
-            style="Status.TLabel",
-            anchor=tk.W,
-        )
-        self.status_label.pack(fill=tk.X)
+        # FEN Entry
+        self.fen_entry = ttk.Entry(self.root, textvariable=self.fen_var, font=("Consolas", 9))
+        self.fen_entry_id = self.canvas.create_window(0, 0, window=self.fen_entry, anchor=tk.NW)
+
+        # Buttons
+        self.analyze_btn = ttk.Button(self.root, text="▶ Analyze", command=self._on_analyze, style="Dark.TButton")
+        self.analyze_btn_id = self.canvas.create_window(0, 0, window=self.analyze_btn, anchor=tk.NW)
+
+        self.top3_btn = ttk.Button(self.root, text="📊 Top 3", command=self._on_top3, style="Dark.TButton")
+        self.top3_btn_id = self.canvas.create_window(0, 0, window=self.top3_btn, anchor=tk.NW)
+
+        self.fetch_btn = ttk.Button(self.root, text="🔄 Fetch FEN", command=self._on_fetch_fen, style="Dark.TButton")
+        self.fetch_btn_id = self.canvas.create_window(0, 0, window=self.fetch_btn, anchor=tk.NW)
+
+        # Options
+        self.auto_cb = ttk.Checkbutton(self.root, text="🔁 Auto", variable=self.auto_var, command=self._toggle_auto, style="Dark.TCheckbutton")
+        self.auto_cb_id = self.canvas.create_window(0, 0, window=self.auto_cb, anchor=tk.NW)
+
+        self.play_as_menu = ttk.Combobox(self.root, textvariable=self.play_as_var, values=["Both", "White", "Black"], width=6, state="readonly", font=("Consolas", 9))
+        self.play_as_menu_id = self.canvas.create_window(0, 0, window=self.play_as_menu, anchor=tk.NW)
+
+        self.depth_spin = ttk.Spinbox(self.root, from_=1, to=30, width=4, textvariable=self.depth_var, font=("Consolas", 10))
+        self.depth_spin_id = self.canvas.create_window(0, 0, window=self.depth_spin, anchor=tk.NW)
+
+        # Bg Config
+        self.theme_menu = ttk.Combobox(self.root, textvariable=self.theme_var, values=["Default", "Choose Image..."], width=15, state="readonly", font=("Consolas", 9))
+        self.theme_menu.bind("<<ComboboxSelected>>", self._on_theme_change)
+        self.theme_menu_id = self.canvas.create_window(0, 0, window=self.theme_menu, anchor=tk.NW)
+
+        self.opacity_slider = ttk.Scale(self.root, from_=0.0, to=100.0, variable=self.opacity_var, command=lambda e: self._update_background(), orient=tk.HORIZONTAL)
+        self.opacity_slider_id = self.canvas.create_window(0, 0, window=self.opacity_slider, anchor=tk.NW)
+
+        # --- Canvas Text Elements (Transparent Background) ---
+        self.title_text_id = self.canvas.create_text(0, 0, text="♟ Chess Assistant", fill="#f5c2e7", font=("Consolas", 16, "bold"), anchor=tk.CENTER)
+        self.fen_label_id = self.canvas.create_text(0, 0, text="FEN:", fill="#e0e0e0", font=("Consolas", 10), anchor=tk.W)
+        
+        self.play_as_label_id = self.canvas.create_text(0, 0, text="Play As:", fill="#e0e0e0", font=("Consolas", 10), anchor=tk.W)
+        self.depth_label_id = self.canvas.create_text(0, 0, text="Depth:", fill="#e0e0e0", font=("Consolas", 10), anchor=tk.W)
+        
+        self.bg_label_id = self.canvas.create_text(0, 0, text="Bg:", fill="#e0e0e0", font=("Consolas", 10), anchor=tk.W)
+        self.opacity_label_id = self.canvas.create_text(0, 0, text="Opacity:", fill="#e0e0e0", font=("Consolas", 10), anchor=tk.W)
+        
+        self.turn_text_id = self.canvas.create_text(0, 0, text="", fill="#e0e0e0", font=("Consolas", 10), anchor=tk.E)
+        
+        self.separator_line_id = self.canvas.create_line(0, 0, 0, 0, fill="#3f3f5f", width=1)
+
+        # Results
+        self.best_move_title_id = self.canvas.create_text(0, 0, text="Best Move:", fill="#e0e0e0", font=("Consolas", 10), anchor=tk.W)
+        self.move_text_id = self.canvas.create_text(0, 0, text="—", fill="#a6e3a1", font=("Consolas", 28, "bold"), anchor=tk.W)
+        self.move_desc_text_id = self.canvas.create_text(0, 0, text="", fill="#94e2d5", font=("Consolas", 11, "italic"), anchor=tk.W)
+
+        self.eval_title_id = self.canvas.create_text(0, 0, text="Eval:", fill="#e0e0e0", font=("Consolas", 10), anchor=tk.W)
+        self.score_text_id = self.canvas.create_text(0, 0, text="—", fill="#fab387", font=("Consolas", 18, "bold"), anchor=tk.W)
+        self.eval_text_id = self.canvas.create_text(0, 0, text="", fill="#cba6f7", font=("Consolas", 11), anchor=tk.W)
+
+        self.pv_text_id = self.canvas.create_text(0, 0, text="", fill="#89b4fa", font=("Consolas", 9), anchor=tk.NW, justify=tk.LEFT)
+
+        # Status Bar
+        self.status_rect_id = self.canvas.create_rectangle(0, 0, 0, 0, fill="#16213e", outline="")
+        self.status_text_id = self.canvas.create_text(0, 0, text="Ready — Enter FEN or click 🔄 Fetch FEN", fill="#7f8c8d", font=("Consolas", 9), anchor=tk.W)
+
+        # Setup initial layout positioning
+        self._update_layout(Config.OVERLAY_WIDTH, Config.OVERLAY_HEIGHT)
 
         # --- Bindings ---
         self.root.bind("<Return>", lambda e: self._on_analyze())
@@ -282,9 +217,120 @@ class ChessOverlay:
         self.root.bind("<Escape>", lambda e: self._quit())
         self.root.protocol("WM_DELETE_WINDOW", self._quit)
 
-    # ------------------------------------------------------------------
-    # Actions
-    # ------------------------------------------------------------------
+    def _update_layout(self, w: int, h: int):
+        """Update positions of all elements on the canvas when the window is resized."""
+        # 1. Update background image / solid bg
+        self._update_background()
+
+        # 2. Title (Centered)
+        self.canvas.coords(self.title_text_id, w // 2, 25)
+
+        # 3. FEN Row (y = 55)
+        self.canvas.coords(self.fen_label_id, 15, 55 + 11)
+        entry_width = max(100, w - 55 - 15)
+        self.canvas.coords(self.fen_entry_id, 55, 55)
+        self.canvas.itemconfigure(self.fen_entry_id, width=entry_width, height=22)
+
+        # 4. Buttons Row (y = 90)
+        self.canvas.coords(self.analyze_btn_id, 15, 90)
+        self.canvas.itemconfigure(self.analyze_btn_id, width=85, height=26)
+
+        self.canvas.coords(self.top3_btn_id, 105, 90)
+        self.canvas.itemconfigure(self.top3_btn_id, width=75, height=26)
+
+        self.canvas.coords(self.fetch_btn_id, 185, 90)
+        self.canvas.itemconfigure(self.fetch_btn_id, width=105, height=26)
+
+        # 5. Options Row (y = 125)
+        self.canvas.coords(self.auto_cb_id, 15, 125)
+        self.canvas.itemconfigure(self.auto_cb_id, width=70, height=22)
+
+        self.canvas.coords(self.play_as_label_id, 95, 125 + 11)
+        self.canvas.coords(self.play_as_menu_id, 155, 125)
+        self.canvas.itemconfigure(self.play_as_menu_id, width=60, height=22)
+
+        self.canvas.coords(self.depth_label_id, 225, 125 + 11)
+        self.canvas.coords(self.depth_spin_id, 270, 125)
+        self.canvas.itemconfigure(self.depth_spin_id, width=45, height=22)
+
+        # 6. Bg Config Row (y = 160)
+        self.canvas.coords(self.bg_label_id, 15, 160 + 11)
+        self.canvas.coords(self.theme_menu_id, 45, 160)
+        self.canvas.itemconfigure(self.theme_menu_id, width=120, height=22)
+
+        self.canvas.coords(self.opacity_label_id, 180, 160 + 11)
+        slider_width = max(50, w - 245 - 15)
+        self.canvas.coords(self.opacity_slider_id, 245, 160)
+        self.canvas.itemconfigure(self.opacity_slider_id, width=slider_width, height=22)
+
+        # 7. Turn indicator (y = 195)
+        self.canvas.coords(self.turn_text_id, w - 15, 195)
+
+        # 8. Separator Line (y = 210)
+        self.canvas.coords(self.separator_line_id, 15, 210, w - 15, 210)
+
+        # 9. Results Area
+        self.canvas.coords(self.best_move_title_id, 15, 235 + 18)
+        self.canvas.coords(self.move_text_id, 105, 235 + 18)
+
+        # Move description (y = 275)
+        self.canvas.coords(self.move_desc_text_id, 20, 275)
+
+        # Eval (y = 300)
+        self.canvas.coords(self.eval_title_id, 15, 300 + 11)
+        self.canvas.coords(self.score_text_id, 70, 300 + 11)
+
+        # Eval description (y = 325)
+        self.canvas.coords(self.eval_text_id, 15, 325)
+
+        # PV / Top moves (y = 350)
+        self.canvas.coords(self.pv_text_id, 15, 350)
+        pv_width = max(100, w - 30)
+        self.canvas.itemconfigure(self.pv_text_id, width=pv_width)
+
+        # 10. Status Bar at the bottom
+        self.canvas.coords(self.status_rect_id, 0, h - 25, w, h)
+        self.canvas.coords(self.status_text_id, 10, h - 13)
+
+    def _update_background(self):
+        """Load, resize, and display background image blended with theme background color based on opacity."""
+        w = self.root.winfo_width()
+        h = self.root.winfo_height()
+        if w < 10 or h < 10:
+            w, h = Config.OVERLAY_WIDTH, Config.OVERLAY_HEIGHT
+
+        opacity = self.opacity_var.get() / 100.0  # opacity is 0.0 to 1.0
+
+        if self.bg_image_path:
+            try:
+                from PIL import Image, ImageTk
+                img = Image.open(self.bg_image_path)
+                img = img.resize((w, h), Image.Resampling.LANCZOS).convert("RGBA")
+
+                # Solid dark theme color #1a1a2e as base
+                solid = Image.new("RGBA", (w, h), (26, 26, 46, 255))
+
+                # Blend image and solid color
+                blended = Image.blend(solid, img, opacity)
+                self.bg_photo = ImageTk.PhotoImage(blended)
+                self.canvas.itemconfig(self.bg_image_id, image=self.bg_photo)
+                self.canvas.tag_lower(self.bg_image_id)
+            except Exception as e:
+                self._set_status(f"✗ Image error: {e}")
+        else:
+            # Default theme (solid color, brightness adjusted via opacity slider)
+            self.canvas.itemconfig(self.bg_image_id, image="")
+            self.bg_photo = None
+            
+            # Base color is #1a1a2e -> RGB(26, 26, 46). Adjust brightness based on opacity.
+            r = int(26 * opacity)
+            g = int(26 * opacity)
+            b = int(46 * opacity)
+            bg_hex = f"#{r:02x}{g:02x}{b:02x}"
+            
+            self.canvas.configure(bg=bg_hex)
+            status_bg = self._get_darker_color(bg_hex, 0.8)
+            self.canvas.itemconfig(self.status_rect_id, fill=status_bg)
 
     def _on_fetch_fen(self):
         """Fetch FEN from relay server."""
@@ -413,34 +459,30 @@ class ChessOverlay:
 
         self.root.after(Config.REFRESH_INTERVAL_MS, self._auto_loop)
 
-    # ------------------------------------------------------------------
-    # Display
-    # ------------------------------------------------------------------
-
     def _display_result(self, result: AnalysisResult):
-        self.move_label.configure(text=result.best_move_san)
-        self.move_desc_label.configure(text=result.best_move_desc)
-        self.score_label.configure(text=result.score_display)
-        self.eval_text_label.configure(text=result.evaluation_text)
+        self.canvas.itemconfig(self.move_text_id, text=result.best_move_san)
+        self.canvas.itemconfig(self.move_desc_text_id, text=result.best_move_desc)
+        self.canvas.itemconfig(self.score_text_id, text=result.score_display)
+        self.canvas.itemconfig(self.eval_text_id, text=result.evaluation_text)
 
         # Eval color based on score
+        score_color = "#fab387" # default orange
         if result.score_cp is not None:
             if result.score_cp > 50:
-                self.score_label.configure(foreground="#a6e3a1")  # green
+                score_color = "#a6e3a1"  # green
             elif result.score_cp < -50:
-                self.score_label.configure(foreground="#f38ba8")  # red
-            else:
-                self.score_label.configure(foreground="#fab387")  # orange
+                score_color = "#f38ba8"  # red
         elif result.score_mate is not None:
             if result.score_mate > 0:
-                self.score_label.configure(foreground="#a6e3a1")
+                score_color = "#a6e3a1"
             else:
-                self.score_label.configure(foreground="#f38ba8")
+                score_color = "#f38ba8"
+        self.canvas.itemconfig(self.score_text_id, fill=score_color)
 
         pv_text = ""
         if result.pv:
             pv_text = "PV: " + " → ".join(result.pv)
-        self.pv_label.configure(text=pv_text)
+        self.canvas.itemconfig(self.pv_text_id, text=pv_text)
 
         self._set_status(
             f"✓ Depth {result.depth} | {result.thinking_time}s | "
@@ -465,10 +507,10 @@ class ChessOverlay:
             return
 
         best = results[0]
-        self.move_label.configure(text=best.best_move_san)
-        self.move_desc_label.configure(text=best.best_move_desc)
-        self.score_label.configure(text=best.score_display)
-        self.eval_text_label.configure(text=best.evaluation_text)
+        self.canvas.itemconfig(self.move_text_id, text=best.best_move_san)
+        self.canvas.itemconfig(self.move_desc_text_id, text=best.best_move_desc)
+        self.canvas.itemconfig(self.score_text_id, text=best.score_display)
+        self.canvas.itemconfig(self.eval_text_id, text=best.evaluation_text)
 
         lines = []
         medals = ["🥇", "🥈", "🥉"]
@@ -478,7 +520,7 @@ class ChessOverlay:
             desc_part = f" ({r.best_move_desc})" if r.best_move_desc else ""
             lines.append(f"{medal} {r.best_move_san:6s}{desc_part} ({r.score_display})\n   PV: {pv}")
 
-        self.pv_label.configure(text="\n".join(lines))
+        self.canvas.itemconfig(self.pv_text_id, text="\n".join(lines))
         self._set_status(f"✓ Top {len(results)} moves — Depth {best.depth}")
 
         # Transmit best move to FEN relay server
@@ -499,12 +541,17 @@ class ChessOverlay:
             board = chess.Board(fen)
             turn = "⬜ White to move" if board.turn else "⬛ Black to move"
             move_num = board.fullmove_number
-            self.turn_var.set(f"{turn} (move {move_num})")
+            text = f"{turn} (move {move_num})"
         except Exception:
-            self.turn_var.set("")
+            text = ""
+        self.turn_var.set(text)
+        if hasattr(self, "canvas") and hasattr(self, "turn_text_id"):
+            self.canvas.itemconfig(self.turn_text_id, text=text)
 
     def _set_status(self, msg: str):
         self.status_var.set(msg)
+        if hasattr(self, "canvas") and hasattr(self, "status_text_id"):
+            self.canvas.itemconfig(self.status_text_id, text=msg)
 
     def _on_theme_change(self, event=None):
         theme = self.theme_var.get()
@@ -516,22 +563,12 @@ class ChessOverlay:
             )
             if file_path:
                 self.bg_image_path = file_path
-                w = self.root.winfo_width()
-                h = self.root.winfo_height()
-                if w < 10 or h < 10:
-                    w, h = Config.OVERLAY_WIDTH, Config.OVERLAY_HEIGHT
-                self._update_bg_image(w, h)
+                self._update_background()
             else:
                 self._restore_previous_theme()
         else:
-            self._remove_bg_image()
-            self._update_bg_color("#1a1a2e")
-
-    def _remove_bg_image(self):
-        """Destroy or hide the background image label."""
-        self.bg_image_path = None
-        if hasattr(self, "bg_label"):
-            self.bg_label.place_forget()
+            self.bg_image_path = None
+            self._update_background()
 
     def _restore_previous_theme(self):
         """Restore the combobox selection to match the active background."""
@@ -539,23 +576,6 @@ class ChessOverlay:
             self.theme_var.set("Choose Image...")
         else:
             self.theme_var.set("Default")
-
-    def _update_bg_color(self, new_bg: str):
-        self.current_bg = new_bg
-        status_bg = self._get_darker_color(new_bg, 0.8)
-        
-        style = ttk.Style()
-        style.configure("Dark.TFrame", background=new_bg)
-        style.configure("Dark.TLabel", background=new_bg)
-        style.configure("Title.TLabel", background=new_bg)
-        style.configure("Move.TLabel", background=new_bg)
-        style.configure("Score.TLabel", background=new_bg)
-        style.configure("Eval.TLabel", background=new_bg)
-        style.configure("PV.TLabel", background=new_bg)
-        style.configure("Dark.TCheckbutton", background=new_bg)
-        style.configure("Status.TLabel", background=status_bg)
-        
-        self.root.configure(bg=new_bg)
 
     def _get_darker_color(self, hex_color: str, factor: float = 0.8) -> str:
         """Calculate a darker version of a hex color for the status bar."""
@@ -580,32 +600,7 @@ class ChessOverlay:
             if w != self._last_width or h != self._last_height:
                 self._last_width = w
                 self._last_height = h
-                if self.bg_image_path:
-                    self._update_bg_image(w, h)
-
-    def _update_bg_image(self, w: int, h: int):
-        """Load, resize, and display background image."""
-        if not self.bg_image_path:
-            return
-        try:
-            from PIL import Image, ImageTk
-            img = Image.open(self.bg_image_path)
-            img = img.resize((w, h), Image.Resampling.LANCZOS)
-            self.bg_photo = ImageTk.PhotoImage(img)
-            
-            if not hasattr(self, "bg_label"):
-                self.bg_label = tk.Label(self.main_frame, image=self.bg_photo)
-            else:
-                self.bg_label.configure(image=self.bg_photo)
-                
-            self.bg_label.place(x=0, y=0, relwidth=1, relheight=1)
-            self.bg_label.lower()
-        except Exception as e:
-            self._set_status(f"✗ Image error: {e}")
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
+                self._update_layout(w, h)
 
     def _quit(self):
         self._running = False

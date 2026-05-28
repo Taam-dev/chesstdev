@@ -79,6 +79,57 @@ def cli_analyze(fen: str, depth: int, top: int):
     print()
 
 
+def is_server_running() -> bool:
+    """Check if FEN relay server is already running on port 5555."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:5555/ping", timeout=0.5) as response:
+            return response.read() == b"pong"
+    except Exception:
+        return False
+
+
+def start_relay_server():
+    """Start fen_relay_server.py in a separate cmd window."""
+    import os
+    import sys
+    import subprocess
+
+    if is_server_running():
+        print("✓ FEN Relay Server is already running on port 5555.")
+        return
+
+    # Find fen_relay_server.py
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    server_path = os.path.join(base_dir, "fen_relay_server.py")
+    if not os.path.exists(server_path):
+        print(f"⚠ FEN Relay Server not found at {server_path}")
+        return
+
+    try:
+        # Determine the python interpreter path
+        python_exe = "python"
+        venv_python = os.path.join(base_dir, "venv", "Scripts", "python.exe")
+        if os.path.exists(venv_python):
+            python_exe = venv_python
+        elif sys.executable and "python" in os.path.basename(sys.executable).lower():
+            python_exe = sys.executable
+
+        # Run in a new command prompt window, keep it open on close using cmd.exe /k
+        cmd = f'cmd.exe /k ""{python_exe}" "{server_path}""'
+        subprocess.Popen(
+            cmd,
+            creationflags=subprocess.CREATE_NEW_CONSOLE
+        )
+        print("✓ Started FEN Relay Server in a new cmd window.")
+    except Exception as e:
+        print(f"⚠ Failed to start FEN Relay Server: {e}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="♟ Chess Assistant — Suggest moves using Stockfish",
@@ -137,6 +188,9 @@ Examples:
         print()
     else:
         print(f"✓ Stockfish: {Config.STOCKFISH_PATH}")
+
+    # Launch FEN Relay Server automatically
+    start_relay_server()
 
     from overlay_gui import ChessOverlay
 

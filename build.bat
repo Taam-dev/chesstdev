@@ -76,12 +76,25 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+echo [INFO] Copying fen_relay_server.py and assets to dist folder...
+copy /y fen_relay_server.py dist\ >nul
+if exist "icon.ico" copy /y icon.ico dist\ >nul
+if exist "icon.png" copy /y icon.png dist\ >nul
+if %errorlevel% neq 0 (
+    echo [WARNING] Failed to copy assets to dist folder.
+) else (
+    echo [SUCCESS] Copied fen_relay_server.py and assets to dist folder.
+)
+
 echo.
 echo =======================================================
 echo   🎉 SUCCESS! The standalone executable has been built!
 echo =======================================================
 echo  You can find the executable at:
 echo    dist\ChessAssistant.exe
+echo    dist\fen_relay_server.py
+echo    dist\icon.ico (if existed)
+echo    dist\icon.png (if existed)
 echo.
 pause
 exit /b 0
