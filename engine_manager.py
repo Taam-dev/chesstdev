@@ -1,5 +1,5 @@
 """
-Quản lý Stockfish UCI engine.
+Manage Stockfish UCI engine.
 """
 
 from __future__ import annotations
@@ -15,11 +15,12 @@ from config import Config
 
 @dataclass
 class AnalysisResult:
-    """Kết quả phân tích từ engine."""
+    """Analysis result from the engine."""
 
     best_move: chess.Move | None = None
     best_move_san: str = "—"
     best_move_uci: str = "—"
+    best_move_desc: str = ""
     score_cp: int | None = None
     score_mate: int | None = None
     depth: int = 0
@@ -40,30 +41,30 @@ class AnalysisResult:
 
 
 class EngineManager:
-    """Wrapper cho Stockfish."""
+    """Wrapper for Stockfish."""
 
     def __init__(self, stockfish_path: str | None = None):
         self.path = stockfish_path or Config.STOCKFISH_PATH
         self._engine: chess.engine.SimpleEngine | None = None
 
     def start(self):
-        """Khởi động engine."""
+        """Start the engine."""
         if self._engine is not None:
             return
 
         if not self.path:
-            raise FileNotFoundError("Chưa cấu hình đường dẫn Stockfish!")
+            raise FileNotFoundError("Stockfish path is not configured!")
 
         from pathlib import Path
 
         p = Path(self.path)
         if not p.exists():
             raise FileNotFoundError(
-                f"Không tìm thấy Stockfish tại: {self.path}\n"
-                f"Tải từ https://stockfishchess.org/download/"
+                f"Stockfish not found at: {self.path}\n"
+                f"Download from https://stockfishchess.org/download/"
             )
 
-        print(f"[ENGINE] Đang khởi động Stockfish: {self.path}")
+        print(f"[ENGINE] Starting Stockfish: {self.path}")
         self._engine = chess.engine.SimpleEngine.popen_uci(str(p))
         self._engine.configure(
             {
@@ -71,28 +72,28 @@ class EngineManager:
                 "Hash": Config.ENGINE_HASH_MB,
             }
         )
-        print("[ENGINE] Stockfish sẵn sàng ✓")
+        print("[ENGINE] Stockfish ready ✓")
 
     def stop(self):
-        """Tắt engine."""
+        """Stop the engine."""
         if self._engine:
             try:
                 self._engine.quit()
             except Exception:
                 pass
             self._engine = None
-            print("[ENGINE] Stockfish đã tắt")
+            print("[ENGINE] Stockfish stopped")
 
     def analyze(
         self, fen: str, depth: int | None = None, time_limit: float | None = None
     ) -> AnalysisResult:
-        """Phân tích vị trí, trả về nước đi tốt nhất + đánh giá."""
+        """Analyze position, returning best move + evaluation."""
         if not self._engine:
             self.start()
 
         board = chess.Board(fen)
 
-        # Kiểm tra game đã kết thúc chưa
+        # Check if game is over
         if board.is_game_over():
             return AnalysisResult(evaluation_text=self._game_over_text(board))
 
@@ -110,7 +111,7 @@ class EngineManager:
     def get_top_moves(
         self, fen: str, count: int = 3, depth: int | None = None
     ) -> list[AnalysisResult]:
-        """Trả về top N nước đi."""
+        """Return top N moves."""
         if not self._engine:
             self.start()
 
@@ -135,7 +136,7 @@ class EngineManager:
     def _parse_result(
         self, board: chess.Board, info: dict, depth: int, elapsed: float
     ) -> AnalysisResult:
-        """Parse kết quả từ engine."""
+        """Parse engine analysis results."""
         pv_moves = info.get("pv", [])
         best_move = pv_moves[0] if pv_moves else None
 
@@ -149,31 +150,31 @@ class EngineManager:
             if pov.is_mate():
                 score_mate = pov.mate()
                 if score_mate > 0:
-                    eval_text = f"Thắng — Chiếu hết trong {score_mate} nước"
+                    eval_text = f"Winning — Mate in {score_mate} moves"
                 elif score_mate < 0:
-                    eval_text = f"Thua — Bị chiếu hết trong {abs(score_mate)} nước"
+                    eval_text = f"Losing — Mated in {abs(score_mate)} moves"
                 else:
-                    eval_text = "Chiếu hết"
+                    eval_text = "Checkmate"
             else:
                 score_cp = pov.score()
                 if score_cp is not None:
                     cp = score_cp / 100.0
                     if abs(cp) < 0.3:
-                        eval_text = "Cân bằng"
+                        eval_text = "Balanced"
                     elif cp > 3.0:
-                        eval_text = f"Ưu thế lớn (+{cp:.2f})"
+                        eval_text = f"Large advantage (+{cp:.2f})"
                     elif cp > 1.0:
-                        eval_text = f"Ưu thế (+{cp:.2f})"
+                        eval_text = f"Advantage (+{cp:.2f})"
                     elif cp > 0:
-                        eval_text = f"Hơi hơn (+{cp:.2f})"
+                        eval_text = f"Slight advantage (+{cp:.2f})"
                     elif cp < -3.0:
-                        eval_text = f"Bất lợi lớn ({cp:.2f})"
+                        eval_text = f"Large disadvantage ({cp:.2f})"
                     elif cp < -1.0:
-                        eval_text = f"Bất lợi ({cp:.2f})"
+                        eval_text = f"Disadvantage ({cp:.2f})"
                     else:
-                        eval_text = f"Hơi kém ({cp:.2f})"
+                        eval_text = f"Slight disadvantage ({cp:.2f})"
 
-        # Principal variation dạng SAN
+        # Principal variation in SAN format
         pv_san = []
         temp_board = board.copy()
         for mv in pv_moves[:8]:
@@ -186,10 +187,15 @@ class EngineManager:
         best_san = board.san(best_move) if best_move else "—"
         best_uci = best_move.uci() if best_move else "—"
 
+        best_desc = ""
+        if best_move:
+            best_desc = self._get_move_description(board, best_move)
+
         return AnalysisResult(
             best_move=best_move,
             best_move_san=best_san,
             best_move_uci=best_uci,
+            best_move_desc=best_desc,
             score_cp=score_cp,
             score_mate=score_mate,
             depth=info.get("depth", depth),
@@ -198,20 +204,83 @@ class EngineManager:
             thinking_time=round(elapsed, 2),
         )
 
+    def _get_move_description(self, board: chess.Board, move: chess.Move) -> str:
+        """Provide a detailed, beginner-friendly explanation of a chess move."""
+        if not move:
+            return ""
+
+        # Check castling
+        if board.is_kingside_castling(move):
+            return "Kingside castle"
+        if board.is_queenside_castling(move):
+            return "Queenside castle"
+
+        piece = board.piece_at(move.from_square)
+        if not piece:
+            return ""
+
+        piece_names = {
+            chess.PAWN: "Pawn",
+            chess.KNIGHT: "Knight",
+            chess.BISHOP: "Bishop",
+            chess.ROOK: "Rook",
+            chess.QUEEN: "Queen",
+            chess.KING: "King"
+        }
+        piece_name = piece_names.get(piece.piece_type, "Piece")
+        to_square_name = chess.square_name(move.to_square)
+
+        is_capture = board.is_capture(move)
+
+        promotion_name = ""
+        if move.promotion:
+            prom_names = {
+                chess.KNIGHT: "Knight",
+                chess.BISHOP: "Bishop",
+                chess.ROOK: "Rook",
+                chess.QUEEN: "Queen"
+            }
+            promotion_name = f", promoting to {prom_names.get(move.promotion, 'Queen')}"
+
+        # Copy board to check if the move results in check or checkmate
+        board_copy = board.copy()
+        try:
+            board_copy.push(move)
+            if board_copy.is_checkmate():
+                status = " (checkmate)"
+            elif board_copy.is_check():
+                status = " (check)"
+            else:
+                status = ""
+        except Exception:
+            status = ""
+
+        if is_capture:
+            captured_piece = board.piece_at(move.to_square)
+            if captured_piece:
+                captured_name = piece_names.get(captured_piece.piece_type, "piece").lower()
+                return f"{piece_name} takes {captured_name} on {to_square_name}{promotion_name}{status}"
+            elif board.is_en_passant(move):
+                return f"{piece_name} takes Pawn en passant on {to_square_name}{promotion_name}{status}"
+            else:
+                return f"{piece_name} takes on {to_square_name}{promotion_name}{status}"
+        else:
+            return f"{piece_name} to {to_square_name}{promotion_name}{status}"
+
     def _game_over_text(self, board: chess.Board) -> str:
-        """Mô tả kết thúc ván."""
+        """Describe the game over condition."""
         if board.is_checkmate():
-            winner = "Đen" if board.turn else "Trắng"
-            return f"Chiếu hết! {winner} thắng"
+            winner = "Black" if board.turn else "White"
+            return f"Checkmate! {winner} wins"
         if board.is_stalemate():
-            return "Hết nước (Stalemate) — Hòa"
+            return "Stalemate — Draw"
         if board.is_insufficient_material():
-            return "Không đủ quân — Hòa"
+            return "Insufficient material — Draw"
         if board.is_fifty_moves():
-            return "Luật 50 nước — Hòa"
+            return "50-move rule — Draw"
         if board.is_repetition():
-            return "Lặp thế 3 lần — Hòa"
-        return "Ván đã kết thúc"
+            return "Threefold repetition — Draw"
+        return "Game over"
 
     def __enter__(self):
         self.start()

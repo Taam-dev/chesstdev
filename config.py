@@ -1,6 +1,6 @@
 """
-Cấu hình trung tâm cho Chess Assistant.
-Sửa đường dẫn Stockfish và các thông số ở đây.
+Central configuration for Chess Assistant.
+Modify Stockfish path and parameters here.
 """
 
 import platform
@@ -9,13 +9,13 @@ from pathlib import Path
 
 
 def _find_stockfish() -> str:
-    """Tự động tìm Stockfish binary."""
+    """Automatically find Stockfish binary."""
     system = platform.system()
 
     candidates = []
 
     if system == "Windows":
-        # Thêm tất cả tên file phổ biến
+        # Add all common filenames
         stockfish_names = [
             "stockfish.exe",
             "stockfish-windows-x86-64-avx2.exe",
@@ -31,22 +31,25 @@ def _find_stockfish() -> str:
             Path.home() / "Desktop" / "stockfish",
             Path.home() / "Downloads" / "stockfish",
             Path.home() / "Downloads",
-            Path("."),  # thư mục hiện tại
+            Path("."),  # Current directory
         ]
         for d in stockfish_dirs:
             for name in stockfish_names:
                 candidates.append(d / name)
 
-        # Tìm thêm bất kỳ file nào tên chứa "stockfish" trong các thư mục
+        # Find any file containing "stockfish" in the directories
         for d in stockfish_dirs:
-            if d.exists() and d.is_dir():
-                for f in d.iterdir():
-                    if (
-                        f.is_file()
-                        and "stockfish" in f.name.lower()
-                        and f.suffix == ".exe"
-                    ):
-                        candidates.append(f)
+            try:
+                if d.exists() and d.is_dir():
+                    for f in d.iterdir():
+                        if (
+                            f.is_file()
+                            and "stockfish" in f.name.lower()
+                            and f.suffix == ".exe"
+                        ):
+                            candidates.append(f)
+            except (OSError, PermissionError):
+                continue
 
     elif system == "Darwin":  # macOS
         candidates = [
@@ -61,7 +64,7 @@ def _find_stockfish() -> str:
             Path("/snap/bin/stockfish"),
         ]
 
-    # Kiểm tra từng đường dẫn
+    # Check each path
     for path in candidates:
         try:
             if path.exists() and path.is_file():
@@ -69,7 +72,7 @@ def _find_stockfish() -> str:
         except (OSError, PermissionError):
             continue
 
-    # Tìm trong PATH
+    # Search in PATH
     found = shutil.which("stockfish")
     if found:
         return found
@@ -78,7 +81,7 @@ def _find_stockfish() -> str:
 
 
 class Config:
-    """Cấu hình chính."""
+    """Main configuration."""
 
     # --- Stockfish ---
     STOCKFISH_PATH: str = _find_stockfish()
@@ -102,17 +105,17 @@ class Config:
 
     @classmethod
     def validate(cls) -> list:
-        """Trả về danh sách lỗi cấu hình."""
+        """Returns a list of configuration issues."""
         problems = []
         if not cls.STOCKFISH_PATH:
             problems.append(
-                "Không tìm thấy Stockfish!\n"
-                "  → Tải từ: https://stockfishchess.org/download/\n"
-                "  → Sau đó sửa Config.STOCKFISH_PATH trong config.py\n"
-                '  → Hoặc chạy: python main.py --stockfish "đường/dẫn/stockfish.exe"'
+                "Stockfish not found!\n"
+                "  → Download from: https://stockfishchess.org/download/\n"
+                "  → Then update Config.STOCKFISH_PATH in config.py\n"
+                '  → Or run: python main.py --stockfish "path/to/stockfish.exe"'
             )
         else:
             p = Path(cls.STOCKFISH_PATH)
             if not p.exists():
-                problems.append(f"File Stockfish không tồn tại: {cls.STOCKFISH_PATH}")
+                problems.append(f"Stockfish file does not exist: {cls.STOCKFISH_PATH}")
         return problems

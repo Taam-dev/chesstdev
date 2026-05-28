@@ -1,5 +1,5 @@
 """
-Lấy FEN từ nhiều nguồn khác nhau.
+Retrieve FEN from various sources.
 """
 
 from __future__ import annotations
@@ -11,14 +11,14 @@ from config import Config
 
 
 class FENProvider:
-    """Cung cấp FEN từ relay server, file, hoặc nhập tay."""
+    """Provides FEN from relay server, file, or manual input."""
 
     def __init__(self):
         self._last_fen: str | None = None
         self._manual_fen: str | None = None
 
     def set_manual_fen(self, fen: str) -> bool:
-        """Đặt FEN thủ công."""
+        """Set FEN manually."""
         validated = self._validate(fen)
         if validated:
             self._manual_fen = validated
@@ -27,7 +27,7 @@ class FENProvider:
         return False
 
     def get_fen(self) -> str | None:
-        """Lấy FEN theo thứ tự ưu tiên: relay server → file → manual."""
+        """Retrieve FEN in priority order: relay server -> file -> manual."""
 
         # 1. Relay server
         fen = self._from_relay_server()
@@ -48,7 +48,7 @@ class FENProvider:
         return self._last_fen
 
     def _from_relay_server(self) -> str | None:
-        """Lấy FEN từ http://127.0.0.1:5555/fen"""
+        """Fetch FEN from http://127.0.0.1:5555/fen"""
         try:
             url = f"http://{Config.RELAY_HOST}:{Config.RELAY_PORT}/fen"
             req = urllib.request.Request(url, method="GET")
@@ -61,7 +61,7 @@ class FENProvider:
         return None
 
     def _from_file(self) -> str | None:
-        """Đọc FEN từ file."""
+        """Read FEN from file."""
         try:
             with open(Config.FEN_FILE, "r") as f:
                 raw = f.read().strip()
@@ -72,7 +72,7 @@ class FENProvider:
         return None
 
     def _validate(self, fen: str) -> str | None:
-        """Kiểm tra FEN hợp lệ."""
+        """Validate FEN string."""
         try:
             fen = fen.strip()
             board = chess.Board(fen)

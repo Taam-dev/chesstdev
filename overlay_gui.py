@@ -24,6 +24,7 @@ class ChessOverlay:
         self.auto_refresh = False
         self._running = True
         self._last_analyzed_fen = None
+        self.current_bg = "#1a1a2e"
 
         self._build_gui()
 
@@ -156,6 +157,21 @@ class ChessOverlay:
         )
         depth_spin.pack(side=tk.LEFT, padx=2)
 
+        ttk.Label(opt_frame, text="Bg:", style="Dark.TLabel").pack(
+            side=tk.LEFT, padx=(12, 2)
+        )
+        self.theme_var = tk.StringVar(value="Midnight Blue")
+        self.theme_menu = ttk.Combobox(
+            opt_frame,
+            textvariable=self.theme_var,
+            values=["Midnight Blue", "Deep Space", "Dark Emerald", "Wine Red", "Custom..."],
+            width=13,
+            state="readonly",
+            font=("Consolas", 9),
+        )
+        self.theme_menu.pack(side=tk.LEFT, padx=2)
+        self.theme_menu.bind("<<ComboboxSelected>>", self._on_theme_change)
+
         # --- Turn indicator ---
         self.turn_var = tk.StringVar(value="")
         ttk.Label(opt_frame, textvariable=self.turn_var, style="Dark.TLabel").pack(
@@ -175,6 +191,16 @@ class ChessOverlay:
         ttk.Label(move_row, text="Best Move:", style="Dark.TLabel").pack(side=tk.LEFT)
         self.move_label = ttk.Label(move_row, text="—", style="Move.TLabel")
         self.move_label.pack(side=tk.LEFT, padx=12)
+
+        # Move Description
+        self.move_desc_label = ttk.Label(
+            result_frame,
+            text="",
+            style="Dark.TLabel",
+            foreground="#94e2d5",
+            font=("Consolas", 11, "italic"),
+        )
+        self.move_desc_label.pack(fill=tk.X, padx=12, pady=(0, 6))
 
         # Eval score
         eval_row = ttk.Frame(result_frame, style="Dark.TFrame")
@@ -201,12 +227,15 @@ class ChessOverlay:
         status_frame = ttk.Frame(main, style="Dark.TFrame")
         status_frame.pack(fill=tk.X, side=tk.BOTTOM)
         self.status_var = tk.StringVar(value="Ready — Enter FEN or click 🔄 Fetch FEN")
-        ttk.Label(
+        
+        # We need self.status_label to be accessible for color updating
+        self.status_label = ttk.Label(
             status_frame,
             textvariable=self.status_var,
             style="Status.TLabel",
             anchor=tk.W,
-        ).pack(fill=tk.X)
+        )
+        self.status_label.pack(fill=tk.X)
 
         # --- Bindings ---
         self.root.bind("<Return>", lambda e: self._on_analyze())
@@ -331,6 +360,7 @@ class ChessOverlay:
 
     def _display_result(self, result: AnalysisResult):
         self.move_label.configure(text=result.best_move_san)
+        self.move_desc_label.configure(text=result.best_move_desc)
         self.score_label.configure(text=result.score_display)
         self.eval_text_label.configure(text=result.evaluation_text)
 
@@ -377,6 +407,7 @@ class ChessOverlay:
 
         best = results[0]
         self.move_label.configure(text=best.best_move_san)
+        self.move_desc_label.configure(text=best.best_move_desc)
         self.score_label.configure(text=best.score_display)
         self.eval_text_label.configure(text=best.evaluation_text)
 
@@ -384,8 +415,9 @@ class ChessOverlay:
         medals = ["🥇", "🥈", "🥉"]
         for i, r in enumerate(results):
             medal = medals[i] if i < len(medals) else f"{i + 1}."
-            pv = " → ".join(r.pv[:5])
-            lines.append(f"{medal} {r.best_move_san:6s} ({r.score_display:>7s})  {pv}")
+            pv = " → ".join(r.pv[:4])
+            desc_part = f" ({r.best_move_desc})" if r.best_move_desc else ""
+            lines.append(f"{medal} {r.best_move_san:6s}{desc_part} ({r.score_display})\n   PV: {pv}")
 
         self.pv_label.configure(text="\n".join(lines))
         self._set_status(f"✓ Top {len(results)} moves — Depth {best.depth}")
@@ -414,6 +446,61 @@ class ChessOverlay:
 
     def _set_status(self, msg: str):
         self.status_var.set(msg)
+
+    def _on_theme_change(self, event=None):
+        theme = self.theme_var.get()
+        themes = {
+            "Midnight Blue": "#1a1a2e",
+            "Deep Space": "#121212",
+            "Dark Emerald": "#132a13",
+            "Wine Red": "#2b1b17"
+        }
+        
+        if theme == "Custom...":
+            from tkinter import colorchooser
+            color_code = colorchooser.askcolor(title="Choose Background Color", initialcolor=self.current_bg)
+            if color_code and color_code[1]:
+                self._update_bg_color(color_code[1])
+            else:
+                inv_themes = {v: k for k, v in themes.items()}
+                prev_theme = inv_themes.get(self.current_bg, "Custom...")
+                self.theme_var.set(prev_theme)
+        else:
+            color = themes.get(theme, "#1a1a2e")
+            self._update_bg_color(color)
+
+    def _update_bg_color(self, new_bg: str):
+        self.current_bg = new_bg
+        status_bg = self._get_darker_color(new_bg, 0.8)
+        
+        style = ttk.Style()
+        style.configure("Dark.TFrame", background=new_bg)
+        style.configure("Dark.TLabel", background=new_bg)
+        style.configure("Title.TLabel", background=new_bg)
+        style.configure("Move.TLabel", background=new_bg)
+        style.configure("Score.TLabel", background=new_bg)
+        style.configure("Eval.TLabel", background=new_bg)
+        style.configure("PV.TLabel", background=new_bg)
+        style.configure("Dark.TCheckbutton", background=new_bg)
+        style.configure("Status.TLabel", background=status_bg)
+        
+        self.root.configure(bg=new_bg)
+
+    def _get_darker_color(self, hex_color: str, factor: float = 0.8) -> str:
+        """Calculate a darker version of a hex color for the status bar."""
+        try:
+            hex_color = hex_color.lstrip("#")
+            r = int(hex_color[0:2], 16)
+            g = int(hex_color[2:4], 16)
+            b = int(hex_color[4:6], 16)
+            
+            r = max(0, int(r * factor))
+            g = max(0, int(g * factor))
+            b = max(0, int(b * factor))
+            
+            return f"#{r:02x}{g:02x}{b:02x}"
+        except Exception:
+            return "#121212"
 
     # ------------------------------------------------------------------
     # Lifecycle
