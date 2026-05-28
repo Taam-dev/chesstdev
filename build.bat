@@ -17,7 +17,7 @@ if %errorlevel% neq 0 (
 
 :: Step 2: Check or create virtual environment
 if not exist "venv\Scripts\python.exe" (
-    echo [INFO] Creating Python virtual environment (venv)...
+    echo [INFO] Creating Python virtual environment...
     python -m venv venv
     if !errorlevel! neq 0 (
         echo [ERROR] Failed to create virtual environment.
@@ -47,7 +47,7 @@ echo.
 echo =======================================================
 set /p BUILD_EXE="Do you want to compile to a standalone EXE? (y/n): "
 if /i "%BUILD_EXE%" neq "y" (
-    echo [INFO] Build script completed successfully (environment set up).
+    echo [INFO] Build script completed successfully, environment is set up.
     echo To run the application, run:
     echo   venv\Scripts\python.exe main.py
     echo.
