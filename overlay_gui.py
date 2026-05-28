@@ -40,6 +40,27 @@ class ChessOverlay:
         self.root.resizable(True, True)
         self.root.configure(bg="#1a1a2e")
 
+        # --- Icon ---
+        import os
+        icon_ico = "icon.ico"
+        icon_png = "icon.png"
+        icon_loaded = False
+        
+        if os.path.exists(icon_ico):
+            try:
+                self.root.iconbitmap(icon_ico)
+                icon_loaded = True
+            except Exception:
+                pass
+                
+        if not icon_loaded and os.path.exists(icon_png):
+            try:
+                from PIL import Image, ImageTk
+                self.icon_photo = ImageTk.PhotoImage(Image.open(icon_png))
+                self.root.iconphoto(True, self.icon_photo)
+            except Exception:
+                pass
+
         try:
             self.root.attributes("-alpha", Config.OVERLAY_ALPHA)
         except tk.TclError:

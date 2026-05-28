@@ -65,7 +65,11 @@ if %errorlevel% neq 0 (
 )
 
 echo [INFO] Compiling Chess Assistant into a standalone executable...
-venv\Scripts\pyinstaller --onefile --noconsole --name="ChessAssistant" main.py
+set "ICON_ARG="
+if exist "icon.ico" (
+    set "ICON_ARG=--icon="icon.ico""
+)
+venv\Scripts\pyinstaller --onefile --noconsole !ICON_ARG! --name="ChessAssistant" main.py
 if %errorlevel% neq 0 (
     echo [ERROR] PyInstaller failed to package the application.
     pause
