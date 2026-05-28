@@ -1,5 +1,5 @@
 """
-GUI overlay hiển thị gợi ý nước đi từ Stockfish.
+GUI overlay displaying Stockfish suggestions.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from fen_parser import FENProvider
 
 
 class ChessOverlay:
-    """GUI always-on-top hiển thị phân tích Stockfish."""
+    """Always-on-top GUI showing Stockfish analysis."""
 
     def __init__(self):
         self.engine = EngineManager()
@@ -100,7 +100,7 @@ class ChessOverlay:
 
         ttk.Label(fen_frame, text="FEN:", style="Dark.TLabel").pack(side=tk.LEFT)
 
-        self.fen_var = tk.StringVar(value="")  # TRỐNG — không mặc định starting pos
+        self.fen_var = tk.StringVar(value="")
         self.fen_entry = ttk.Entry(
             fen_frame, textvariable=self.fen_var, width=50, font=("Consolas", 9)
         )
@@ -122,7 +122,7 @@ class ChessOverlay:
 
         self.fetch_btn = ttk.Button(
             btn_frame,
-            text="🔄 Lấy FEN",
+            text="🔄 Fetch FEN",
             command=self._on_fetch_fen,
             style="Dark.TButton",
         )
@@ -200,7 +200,7 @@ class ChessOverlay:
         # --- Status bar ---
         status_frame = ttk.Frame(main, style="Dark.TFrame")
         status_frame.pack(fill=tk.X, side=tk.BOTTOM)
-        self.status_var = tk.StringVar(value="Sẵn sàng — Nhập FEN hoặc bấm 🔄 Lấy FEN")
+        self.status_var = tk.StringVar(value="Ready — Enter FEN or click 🔄 Fetch FEN")
         ttk.Label(
             status_frame,
             textvariable=self.status_var,
@@ -219,39 +219,39 @@ class ChessOverlay:
     # ------------------------------------------------------------------
 
     def _on_fetch_fen(self):
-        """Lấy FEN từ relay server."""
-        self._set_status("Đang lấy FEN từ relay server...")
+        """Fetch FEN from relay server."""
+        self._set_status("Fetching FEN from relay server...")
 
         fen = self.fen_provider.get_fen()
         if fen:
             self.fen_var.set(fen)
             self._update_turn_indicator(fen)
-            self._set_status(f"✓ Đã lấy FEN từ relay server")
+            self._set_status(f"✓ FEN fetched from relay server")
         else:
             self._set_status(
-                "✗ Không lấy được FEN — Kiểm tra relay server và userscript"
+                "✗ Failed to fetch FEN — Check relay server and userscript"
             )
 
     def _on_analyze(self):
-        """Phân tích vị trí hiện tại."""
-        # Thử lấy FEN mới từ server trước
+        """Analyze current position."""
+        # Try fetching new FEN from server first
         live_fen = self.fen_provider.get_fen()
         if live_fen:
             self.fen_var.set(live_fen)
 
         fen = self.fen_var.get().strip()
         if not fen:
-            self._set_status("⚠ Chưa có FEN — Nhập FEN hoặc bấm 🔄 Lấy FEN")
+            self._set_status("⚠ No FEN — Enter FEN or click 🔄 Fetch FEN")
             return
 
         try:
             chess.Board(fen)
         except ValueError as e:
-            self._set_status(f"✗ FEN không hợp lệ: {e}")
+            self._set_status(f"✗ Invalid FEN: {e}")
             return
 
         self._update_turn_indicator(fen)
-        self._set_status("⏳ Đang phân tích...")
+        self._set_status("⏳ Analyzing...")
         self.analyze_btn.configure(state=tk.DISABLED)
 
         def worker():
@@ -260,31 +260,31 @@ class ChessOverlay:
                 self.root.after(0, self._display_result, result)
                 self._last_analyzed_fen = fen
             except Exception as ex:
-                self.root.after(0, self._set_status, f"✗ Lỗi: {ex}")
+                self.root.after(0, self._set_status, f"✗ Error: {ex}")
             finally:
                 self.root.after(0, lambda: self.analyze_btn.configure(state=tk.NORMAL))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _on_top3(self):
-        """Hiển thị top 3 nước đi."""
+        """Show top 3 moves."""
         live_fen = self.fen_provider.get_fen()
         if live_fen:
             self.fen_var.set(live_fen)
 
         fen = self.fen_var.get().strip()
         if not fen:
-            self._set_status("⚠ Chưa có FEN")
+            self._set_status("⚠ No FEN")
             return
 
         try:
             chess.Board(fen)
         except ValueError:
-            self._set_status("✗ FEN không hợp lệ")
+            self._set_status("✗ Invalid FEN")
             return
 
         self._update_turn_indicator(fen)
-        self._set_status("⏳ Tìm top 3 nước đi...")
+        self._set_status("⏳ Analyzing top 3 moves...")
         self.top3_btn.configure(state=tk.DISABLED)
 
         def worker():
@@ -294,35 +294,34 @@ class ChessOverlay:
                 )
                 self.root.after(0, self._display_top_moves, results)
             except Exception as ex:
-                self.root.after(0, self._set_status, f"✗ Lỗi: {ex}")
+                self.root.after(0, self._set_status, f"✗ Error: {ex}")
             finally:
                 self.root.after(0, lambda: self.top3_btn.configure(state=tk.NORMAL))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _toggle_auto(self):
-        """Bật/tắt auto-refresh."""
+        """Toggle auto-refresh."""
         self.auto_refresh = self.auto_var.get()
         if self.auto_refresh:
-            self._set_status("🔁 Auto-refresh BẬT")
+            self._set_status("🔁 Auto-refresh ON")
             self._auto_loop()
         else:
-            self._set_status("Auto-refresh TẮT")
+            self._set_status("Auto-refresh OFF")
 
     def _auto_loop(self):
-        """Tự động lấy FEN + phân tích."""
+        """Automatically fetch FEN + analyze."""
         if not self.auto_refresh or not self._running:
             return
 
         fen = self.fen_provider.get_fen()
         if fen:
-            # Chỉ phân tích lại khi FEN thay đổi
             if fen != self._last_analyzed_fen:
                 self.fen_var.set(fen)
                 self._update_turn_indicator(fen)
                 self._on_analyze()
         else:
-            self._set_status("🔁 Auto — Chưa nhận được FEN từ server...")
+            self._set_status("🔁 Auto — No FEN received from server...")
 
         self.root.after(Config.REFRESH_INTERVAL_MS, self._auto_loop)
 
@@ -335,14 +334,14 @@ class ChessOverlay:
         self.score_label.configure(text=result.score_display)
         self.eval_text_label.configure(text=result.evaluation_text)
 
-        # Màu eval theo score
+        # Eval color based on score
         if result.score_cp is not None:
             if result.score_cp > 50:
-                self.score_label.configure(foreground="#a6e3a1")  # xanh
+                self.score_label.configure(foreground="#a6e3a1")  # green
             elif result.score_cp < -50:
-                self.score_label.configure(foreground="#f38ba8")  # đỏ
+                self.score_label.configure(foreground="#f38ba8")  # red
             else:
-                self.score_label.configure(foreground="#fab387")  # cam
+                self.score_label.configure(foreground="#fab387")  # orange
         elif result.score_mate is not None:
             if result.score_mate > 0:
                 self.score_label.configure(foreground="#a6e3a1")
@@ -359,9 +358,21 @@ class ChessOverlay:
             f"UCI: {result.best_move_uci}"
         )
 
+        # Transmit best move to FEN relay server
+        if result.best_move_uci and result.best_move_uci != "—":
+            def send_best():
+                try:
+                    import urllib.request
+                    import urllib.parse
+                    url = f"http://{Config.RELAY_HOST}:{Config.RELAY_PORT}/set_bestmove?move={urllib.parse.quote(result.best_move_uci)}"
+                    urllib.request.urlopen(url, timeout=0.5)
+                except Exception:
+                    pass
+            threading.Thread(target=send_best, daemon=True).start()
+
     def _display_top_moves(self, results: list[AnalysisResult]):
         if not results:
-            self._set_status("Không tìm thấy nước đi")
+            self._set_status("No moves found")
             return
 
         best = results[0]
@@ -377,15 +388,27 @@ class ChessOverlay:
             lines.append(f"{medal} {r.best_move_san:6s} ({r.score_display:>7s})  {pv}")
 
         self.pv_label.configure(text="\n".join(lines))
-        self._set_status(f"✓ Top {len(results)} nước đi — Depth {best.depth}")
+        self._set_status(f"✓ Top {len(results)} moves — Depth {best.depth}")
+
+        # Transmit best move to FEN relay server
+        if best.best_move_uci and best.best_move_uci != "—":
+            def send_best():
+                try:
+                    import urllib.request
+                    import urllib.parse
+                    url = f"http://{Config.RELAY_HOST}:{Config.RELAY_PORT}/set_bestmove?move={urllib.parse.quote(best.best_move_uci)}"
+                    urllib.request.urlopen(url, timeout=0.5)
+                except Exception:
+                    pass
+            threading.Thread(target=send_best, daemon=True).start()
 
     def _update_turn_indicator(self, fen: str):
-        """Hiển thị lượt đi."""
+        """Update turn label."""
         try:
             board = chess.Board(fen)
-            turn = "⬜ Trắng đi" if board.turn else "⬛ Đen đi"
+            turn = "⬜ White to move" if board.turn else "⬛ Black to move"
             move_num = board.fullmove_number
-            self.turn_var.set(f"{turn} (nước {move_num})")
+            self.turn_var.set(f"{turn} (move {move_num})")
         except Exception:
             self.turn_var.set("")
 
@@ -403,7 +426,7 @@ class ChessOverlay:
         self.root.destroy()
 
     def run(self):
-        """Khởi chạy GUI."""
+        """Start overlay GUI."""
         problems = Config.validate()
         if problems:
             for p in problems:
@@ -411,7 +434,7 @@ class ChessOverlay:
 
         try:
             self.engine.start()
-            self._set_status("✓ Engine sẵn sàng — Nhập FEN hoặc bấm 🔄 Lấy FEN")
+            self._set_status("✓ Engine ready — Enter FEN or click 🔄 Fetch FEN")
         except FileNotFoundError as e:
             self._set_status(f"✗ {e}")
 

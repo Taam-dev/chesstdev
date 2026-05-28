@@ -29,9 +29,9 @@ desktop.ini
 current_fen.txt
 send_test.py
 
-# Stockfish binary (nguoi dung tu tai)
-*.exe
-!*.py
+# Stockfish binary
+stockfish*
+!stockfish*.py
 
 # Logs
 *.log
